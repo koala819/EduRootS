@@ -12,7 +12,6 @@ import type {
   StudentDataType,
   TeacherDataType,
 } from '@/lib/import'
-import bcrypt from 'bcryptjs'
 
 // Fonction utilitaire pour valider les IDs
 function validateId(id: string | number): string | null {
@@ -34,22 +33,32 @@ export async function POST(req: NextRequest) {
       await req.json()
     const logs: string[] = []
 
-    // Debug: Vérifier les données d'entrée
-    // console.log("\n=== DEBUG: DONNÉES D'ENTRÉE ===")
-    // console.log("Nombre d'étudiants:", students?.length)
-    // console.log("Exemple d'étudiant:", students?.[0])
-    // console.log('================================\n')
+    // Vérification stricte des mots de passe d'import
+    if (!process.env.STUDENT_PWD || !process.env.STUDENT_PWD.trim()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La variable d'environnement STUDENT_PWD doit être définie et non vide pour importer les étudiants.",
+        },
+        { status: 400 },
+      )
+    }
+    if (!process.env.TEACHER_PWD || !process.env.TEACHER_PWD.trim()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La variable d'environnement TEACHER_PWD doit être définie et non vide pour importer les enseignants.",
+        },
+        { status: 400 },
+      )
+    }
 
     // Créer un map pour stocker les étudiants par professeur référent
     const studentsByTeacher =
       students?.reduce(
         (acc: Record<string, StudentDataType[]>, s: StudentDataType) => {
-          // console.log('\n=== DEBUG: RÉDUCTION ===')
-          // console.log('Étudiant:', s)
-          // console.log('teacherId présent?', 'teacherId' in s)
-          // console.log('teacherId valeur:', s.teacherId)
-          // console.log('========================\n')
-
           if (s.teacherId) {
             // Validation du teacherId pour éviter l'injection de propriété
             const teacherId = String(s.teacherId).trim()
@@ -69,18 +78,6 @@ export async function POST(req: NextRequest) {
         },
         {},
       ) || {}
-
-    // Debug: Afficher les profs et leurs étudiants
-    // console.log('\n=== DEBUG: PROFESSEURS ET ÉTUDIANTS ===')
-    // console.log('studentsByTeacher', studentsByTeacher)
-    // Object.entries(studentsByTeacher).forEach(([teacherId, students]) => {
-    //   console.log(`\nProf ID: ${teacherId}`)
-    //   console.log(
-    //     'Étudiants:',
-    //     (students as any[]).map((s) => s.id),
-    //   )
-    // })
-    // console.log('=====================================\n')
 
     // Créer un map pour les IDs fusionnés
     const mergedTeacherMap =
@@ -114,37 +111,18 @@ export async function POST(req: NextRequest) {
         {},
       ) || {}
 
-    // console.log('\n=== DEBUG: FUSION DES PROFESSEURS ===')
-    // console.log('mergedTeachers:', mergedTeachers)
-    // console.log('mergedTeacherMap:', mergedTeacherMap)
-    // console.log('=====================================\n')
-
     /*----------------------------------------------------------
     1. Insérer les enseignants
     ----------------------------------------------------------*/
     const insertedTeachers = []
     const teacherIdMap: Record<string, string> = {} // Map pour stocker id métier -> _id MongoDB
     if (teachers && teachers.length > 0) {
-      // console.log('\n\n\n[FIRST] teachers:', teachers)
-      // console.log(
-      //   '[IMPORT] Début insertion enseignants, nombre:',
-      //   teachers.length,
-      // )
-
-      // Hacher les mots de passe avant l'insertion
-      const hashedPassword = await bcrypt.hash(
-        process.env.TEACHER_PWD || '@changer!',
-        10,
-      )
-
       // Créer un Set pour stocker les IDs uniques des enseignants de Excel
       const uniqueTeacherIdFromExcel = new Set<string>(
         teachers.map((t: TeacherDataType) => {
-          // console.log('t', t)
           return t.id
         }),
       )
-      // console.log('\n\n uniqueTeacherIdFromExcel', uniqueTeacherIdFromExcel)
 
       // Créer les documents des enseignants (un seul par ID)
       const teacherDataFormats: Teacher[] = Array.from(
@@ -161,7 +139,6 @@ export async function POST(req: NextRequest) {
         const teacherSubjects =
           courses
             ?.filter((c: CourseSessionDataType) => {
-              // console.log('course', c)
               return c.teacherId === id
             })
             .map((c: CourseSessionDataType) => c.subject)
@@ -169,13 +146,12 @@ export async function POST(req: NextRequest) {
 
         // les matières sont uniques
         const uniqueSubjects = Array.from(new Set(teacherSubjects))
-        // console.log('\n\n\nteacherSubjects pour', id, ':', teacherSubjects)
         return {
           id: id,
           email: teacher?.email?.toLowerCase() || 'user@mail.fr',
           firstname: teacher?.firstname,
           lastname: teacher?.lastname,
-          password: hashedPassword,
+          password: process.env.TEACHER_PWD,
           role: UserRoleEnum.Teacher,
           gender,
           phone: teacher?.phone || '0123456789',
@@ -187,7 +163,6 @@ export async function POST(req: NextRequest) {
 
       // Insérer les enseignants et stocker leurs IDs
       for (const newTeacher of teacherDataFormats) {
-        // console.log('[IMPORT] Tentative insertion enseignant:', newTeacher)
         const teacher = new User(newTeacher)
         const savedTeacher = await teacher.save()
         // Stocker l'ID MongoDB avec l'ID métier comme clé
@@ -201,8 +176,6 @@ export async function POST(req: NextRequest) {
         }
         teacherIdMap[teacherId] = savedTeacher._id.toString()
         insertedTeachers.push(savedTeacher)
-        // console.log('newTeacher.id', newTeacher.id)
-        // console.log('teacherIdMap[newTeacher.id]', teacherIdMap[newTeacher.id])
       }
 
       logs.push(`${insertedTeachers.length} enseignants insérés.`)
@@ -214,15 +187,6 @@ export async function POST(req: NextRequest) {
     const insertedStudents = []
     const studentIdMap: Record<string, string> = {} // Map pour stocker id métier -> _id MongoDB
     if (students && students.length > 0) {
-      // console.log(
-      //   '[IMPORT] Début insertion étudiants, nombre:',
-      //   students.length,
-      // )
-      const hashedPassword = await bcrypt.hash(
-        process.env.STUDENT_PWD || 'changeme',
-        10,
-      )
-
       const studentDataFormats: Student[] = students.map((s: any) => {
         let gender: GenderEnum = GenderEnum.Masculin
         if (s.gender === 'female' || s.gender === 'féminin')
@@ -234,7 +198,7 @@ export async function POST(req: NextRequest) {
           email: s.email?.toLowerCase() || '',
           firstname: s.firstname,
           lastname: s.lastname,
-          password: hashedPassword,
+          password: process.env.STUDENT_PWD,
           role: UserRoleEnum.Student,
           gender,
           phone: s.phone || '',
@@ -257,41 +221,17 @@ export async function POST(req: NextRequest) {
       logs.push(`${insertedStudents.length} étudiants insérés.`)
     }
 
-    // Debug: Afficher les profs et leurs étudiants avec les IDs MongoDB
-    // console.log('\n=== DEBUG: PROFESSEURS ET ÉTUDIANTS (IDs MongoDB) ===')
-    // Object.entries(studentsByTeacher).forEach(([teacherId, students]) => {
-    //   const teacherMongoId = teacherIdMap[teacherId]
-    //   console.log(`\nProf ID Excel: ${teacherId} -> MongoDB: ${teacherMongoId}`)
-    //   console.log(
-    //     'Étudiants:',
-    //     (students as any[]).map((s) => ({
-    //       idExcel: s.id,
-    //       idMongo: studentIdMap[s.id],
-    //     })),
-    //   )
-    // })
-    // console.log('=====================================\n')
-
     /*----------------------------------------------------------
     3. Insérer les cours avec les IDs des professeurs et des étudiants
     ----------------------------------------------------------*/
-    let insertedCourses = []
+    const insertedCourses = []
     if (courses && courses.length > 0) {
-      // console.log('[IMPORT] Début insertion cours, nombre:', courses.length)
-
       // Regrouper les cours uniquement par professeur
       const groupedCourses = courses.reduce(
         (acc: any, c: CourseSessionDataType) => {
-          // console.log('c', c)
           // Convertir l'ID Excel en ID MongoDB
           const originalTeacherId = mergedTeacherMap[c.teacherId] || c.teacherId
           const teacherMongoId = teacherIdMap[originalTeacherId]
-
-          // console.log('\n=== DEBUG: CONVERSION ID PROFESSEUR ===')
-          // console.log('ID Excel original:', c.teacherId)
-          // console.log('ID Excel après fusion:', originalTeacherId)
-          // console.log('ID MongoDB:', teacherMongoId)
-          // console.log('=====================================\n')
 
           if (!teacherMongoId) {
             const sanitizedTeacherId = String(c.teacherId).replace(/\n|\r/g, '')
@@ -308,7 +248,6 @@ export async function POST(req: NextRequest) {
             console.warn(`ID MongoDB invalide ignoré: ${key}`)
             return acc
           }
-          // console.log('Clé de regroupement:', key)
 
           if (!acc[key]) {
             acc[key] = {
@@ -320,24 +259,6 @@ export async function POST(req: NextRequest) {
               stats: {},
             }
           }
-
-          // Récupérer les étudiants de ce professeur et convertir leurs IDs
-          // const teacherStudents = studentsByTeacher[c.teacherId] || []
-          // console.log('\n=== DEBUG: ÉTUDIANTS DU PROFESSEUR ===')
-          // console.log('ID Prof Excel:', c.teacherId)
-          // console.log('Étudiants trouvés:', teacherStudents.length)
-          // console.log(
-          //   'Étudiants:',
-          //   teacherStudents.map((s: ImportStudent) => ({
-          //     id: s.id,
-          //     teacherId: s.teacherId,
-          //   })),
-          // )
-          // console.log('=====================================\n')
-
-          // const studentIds = teacherStudents
-          //   .map((s: any) => studentIdMap[s.id])
-          //   .filter(Boolean)
 
           // Vérifier si une session similaire existe déjà
           const existingSession = acc[key].sessions.find(
@@ -457,13 +378,12 @@ export async function POST(req: NextRequest) {
         {},
       )
 
-      const coursesToInsert = Object.values(groupedCourses)
-      // console.log('Nombre de cours après regroupement:', coursesToInsert.length)
-      // console.log('Cours regroupés:', JSON.stringify(groupedCourses, null, 2))
-
-      insertedCourses = await Course.insertMany(coursesToInsert, {
-        ordered: false,
-      })
+      for (const key in groupedCourses) {
+        const courseData = groupedCourses[key]
+        const course = new Course(courseData)
+        const savedCourse = await course.save()
+        insertedCourses.push(savedCourse)
+      }
       logs.push(`${insertedCourses.length} cours insérés.`)
     }
 
