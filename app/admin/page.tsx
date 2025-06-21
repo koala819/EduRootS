@@ -1,6 +1,6 @@
-import {Metadata} from 'next'
+import { Metadata } from 'next'
 
-import {Dashboard} from '@/components/admin/Dashboard'
+import { Dashboard } from '@/server/components/admin/pages/Dashboard'
 
 export const metadata: Metadata = {
   title: 'Bureau d’administration',

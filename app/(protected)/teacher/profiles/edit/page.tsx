@@ -1,36 +1,31 @@
 'use client'
 
-import {ChevronLeft, ChevronRight, CircleArrowLeft} from 'lucide-react'
-import {useEffect, useState} from 'react'
-import React from 'react'
+import { ChevronLeft, ChevronRight, CircleArrowLeft } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import React,{ useEffect, useState } from 'react'
 
-import {useRouter} from 'next/navigation'
-
-import {useToast} from '@/hooks/use-toast'
-
-import {CourseSession, SubjectNameEnum, TimeSlotEnum} from '@/types/course'
-import {Period, PeriodTypeEnum} from '@/types/schedule'
-
-import {PlanningEditor} from '@/components/atoms/client/PlanningEditor'
-import {HolidaysCard} from '@/components/atoms/server/HolidaysCard'
-import {Button} from '@/components/ui/button'
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
-import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
-
-import {useCourses} from '@/context/Courses/client'
-import {useHolidays} from '@/context/Holidays/client'
-import {useSchedules} from '@/context/Schedules/client'
-import {formatDayOfWeek} from '@/lib/utils'
+import { PlanningEditor } from '@/client/components/atoms/PlanningEditor'
+import { Button } from '@/client/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/client/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/client/components/ui/dialog'
+import { useCourses } from '@/client/context/courses'
+import { useHolidays } from '@/client/context/holidays'
+import { useSchedules } from '@/client/context/schedules'
+import { useToast } from '@/client/hooks/use-toast'
+import { HolidaysCard } from '@/server/components/atoms/HolidaysCard'
+import { formatDayOfWeek } from '@/server/utils/helpers'
+import { CourseSessionWithRelations, SubjectNameEnum, TimeSlotEnum } from '@/types/courses'
+import { Period, PeriodTypeEnum } from '@/types/schedule'
 
 const PlanningViewer = () => {
-  const {toast} = useToast()
-  const {courses, isLoading, updateCourses} = useCourses()
-  const {schedules, isLoading: loadingSchedules} = useSchedules()
-  const {holidays, isLoading: isLoadingHolidays} = useHolidays()
+  const { toast } = useToast()
+  const { courses, isLoading, updateCourses } = useCourses()
+  const { schedules, isLoading: loadingSchedules } = useSchedules()
+  const { holidays, isLoading: isLoadingHolidays } = useHolidays()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [currentDayIndex, setCurrentDayIndex] = useState<number>(0)
-  const [selectedSession, setSelectedSession] = useState<CourseSession | null>(null)
+  const [selectedSession, setSelectedSession] = useState<CourseSessionWithRelations | null>(null)
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<TimeSlotEnum | null>(null)
 
   useEffect(() => {
@@ -64,10 +59,10 @@ const PlanningViewer = () => {
 
   const getSessionsForSlot = (timeSlot: TimeSlotEnum, period: Period) => {
     return courses.flatMap((course) =>
-      course.sessions.filter(
+      course.courses_sessions.filter(
         (session) =>
-          session.timeSlot.dayOfWeek === timeSlot &&
-          session.timeSlot.startTime === period.startTime,
+          session.courses_sessions_timeslot[0].day_of_week === timeSlot &&
+          session.courses_sessions_timeslot[0].start_time === period.startTime,
       ),
     )
   }
@@ -84,25 +79,14 @@ const PlanningViewer = () => {
     return total + sessionCount
   }, 0)
 
-  const getSubjectColor = (subject: SubjectNameEnum): string => {
+  const getSubjectBadgeColor = (subject: string): string => {
     switch (subject) {
-      case SubjectNameEnum.Arabe:
-        return 'border-l-emerald-500'
-      case SubjectNameEnum.EducationCulturelle:
-        return 'border-l-blue-500'
-      default:
-        return 'border-l-gray-500'
-    }
-  }
-
-  const getSubjectBadgeColor = (subject: SubjectNameEnum): string => {
-    switch (subject) {
-      case SubjectNameEnum.Arabe:
-        return 'bg-emerald-100 text-emerald-600'
-      case SubjectNameEnum.EducationCulturelle:
-        return 'bg-blue-100 text-blue-600'
-      default:
-        return 'bg-gray-100 text-gray-600'
+    case SubjectNameEnum.Arabe:
+      return 'bg-emerald-100 text-emerald-600'
+    case SubjectNameEnum.EducationCulturelle:
+      return 'bg-blue-100 text-blue-600'
+    default:
+      return 'bg-gray-100 text-gray-600'
     }
   }
 
@@ -115,11 +99,12 @@ const PlanningViewer = () => {
 
     return (
       <Card
-        className={`shadow-sm border-t-0 border-r-0 border-b-0 overflow-hidden rounded-lg animate-fadeIn bg-white ${
-          selectedTimeSlot === timeSlot
-            ? 'border-l-4 border-l-blue-500'
-            : 'border-l-4 border-l-transparent'
-        }`}
+        className={`shadow-sm border-t-0 border-r-0 border-b-0 overflow-hidden rounded-lg
+           animate-fadeIn bg-white ${
+      selectedTimeSlot === timeSlot
+        ? 'border-l-4 border-l-blue-500'
+        : 'border-l-4 border-l-transparent'
+      }`}
       >
         <CardHeader className="pb-2">
           <div className="flex justify-between items-center">
@@ -152,30 +137,35 @@ const PlanningViewer = () => {
                     {getSessionsForSlot(timeSlot, period).map((session, sessionIdx) => (
                       <div
                         key={`session-${sessionIdx}`}
-                        className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                        className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors
+                        duration-200 cursor-pointer"
                         onClick={() => setSelectedSession(session)}
                       >
-                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center
+                        mb-3">
                           <div className="flex items-center mb-2 sm:mb-0">
                             <div
-                              className={`h-7 px-3 rounded-full flex items-center justify-center mr-2 ${getSubjectBadgeColor(session.subject)}`}
+                              className={`h-7 px-3 rounded-full flex items-center justify-center
+                                mr-2 ${getSubjectBadgeColor(session.subject)}`}
                             >
                               <span className="text-xs font-medium">{session.subject}</span>
                             </div>
-                            <div className="h-7 px-3 rounded-full bg-blue-100 flex items-center justify-center">
+                            <div className="h-7 px-3 rounded-full bg-blue-100 flex items-center
+                            justify-center">
                               <span className="text-blue-600 text-xs font-medium">
                                 Niveau {session.level}
                               </span>
                             </div>
                           </div>
-                          <div className="h-7 px-3 rounded-full bg-gray-100 flex items-center justify-center">
+                          <div className="h-7 px-3 rounded-full bg-gray-100 flex items-center
+                          justify-center">
                             <span className="text-gray-600 text-xs font-medium">
-                              Salle {session.timeSlot.classroomNumber}
+                              Salle {session.courses_sessions_timeslot[0].classroom_number}
                             </span>
                           </div>
                         </div>
                         <div className="text-sm text-gray-500">
-                          {session.students?.length || 0} élèves
+                          {session.courses_sessions_students?.length || 0} élèves
                         </div>
                       </div>
                     ))}
@@ -197,11 +187,11 @@ const PlanningViewer = () => {
         <div className="w-2 h-2 bg-gray-500 rounded-full animate-ping mr-1" />
         <div
           className="w-2 h-2 bg-gray-500 rounded-full animate-ping mr-1"
-          style={{animationDelay: '0.2s'}}
+          style={{ animationDelay: '0.2s' }}
         />
         <div
           className="w-2 h-2 bg-gray-500 rounded-full animate-ping"
-          style={{animationDelay: '0.4s'}}
+          style={{ animationDelay: '0.4s' }}
         />
       </div>
     )
@@ -230,7 +220,8 @@ const PlanningViewer = () => {
           </Button>
 
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 flex items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <div className="h-8 w-8 flex items-center justify-center rounded-full bg-blue-100
+            text-blue-600">
               <span className="text-xs font-medium">{totalSessions}</span>
             </div>
             <span className="text-sm text-gray-500">Cours</span>
@@ -332,11 +323,15 @@ const PlanningViewer = () => {
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm text-gray-500">Salle</div>
-                  <div className="font-medium">{selectedSession?.timeSlot.classroomNumber}</div>
+                  <div className="font-medium">
+                    {selectedSession?.courses_sessions_timeslot[0]?.classroom_number}
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm text-gray-500">Élèves</div>
-                  <div className="font-medium">{selectedSession?.students?.length || 0}</div>
+                  <div className="font-medium">
+                    {selectedSession?.courses_sessions_students?.length || 0}
+                  </div>
                 </div>
               </div>
             </div>
@@ -344,9 +339,14 @@ const PlanningViewer = () => {
             <div className="space-y-2">
               <h3 className="font-medium">Horaire</h3>
               <div className="flex items-center justify-between text-sm p-2 bg-gray-50 rounded">
-                <div>{formatDayOfWeek(selectedSession?.timeSlot.dayOfWeek as TimeSlotEnum)}</div>
                 <div>
-                  {selectedSession?.timeSlot.startTime} - {selectedSession?.timeSlot.endTime}
+                  {formatDayOfWeek(
+                    selectedSession?.courses_sessions_timeslot[0]?.day_of_week as TimeSlotEnum,
+                  )}
+                </div>
+                <div>
+                  {selectedSession?.courses_sessions_timeslot[0]?.start_time} -{' '}
+                  {selectedSession?.courses_sessions_timeslot[0]?.end_time}
                 </div>
               </div>
             </div>
